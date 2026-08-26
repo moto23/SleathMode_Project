@@ -1,97 +1,305 @@
-# StealthMode Course Mangament
+# StealthMode
+
+### Full-Stack E-Learning Marketplace
+
+StealthMode is a full-stack e-learning marketplace where users can discover courses, create accounts, purchase individual or multiple courses via Razorpay, and manage their enrolled learning content.
+
+The platform includes JWT-based authentication, role-based access control, course management, cart-based multi-course checkout, server-authoritative pricing, payment verification, enrollment management, a responsive frontend, reusable UI components, and an admin course-management system.
+
+**Live app:** [stealthmode-frontend.vercel.app](https://stealthmode-frontend.vercel.app)
+
+---
+
+## Table of Contents
+
+- [Overview](#overview)
+- [Features](#features)
+- [Payment System](#payment-system)
+- [Architecture](#architecture)
+- [Tech Stack](#tech-stack)
+- [Project Structure](#project-structure)
+- [API Reference](#api-reference)
+- [Security](#security)
+- [Design System](#design-system)
+- [Engineering Principles](#engineering-principles)
+- [Future Improvements](#future-improvements)
+- [Author](#author)
+
+---
 
 ## Overview
 
-The Course Management Platform is a web application that allows users to register, log in, view a list of courses, and enroll in courses. The application uses React.js for the frontend, Node.js with Express for the backend, and MongoDB for the database. The backend is hosted on AWS EC2 as well as Vercel.
+StealthMode provides an end-to-end course marketplace experience:
 
-![Dashboard Logo](M1.png)
+- User registration, login, and JWT-based authentication
+- Role-based access control (user / admin)
+- Course discovery with search, category filtering, and sorting
+- Detailed course pages with "Buy Now" and "Add to Cart"
+- Multi-course cart checkout
+- Razorpay payments with server-side verification
+- Course enrollment and a "My Learning" profile
+- Admin course management
+- Responsive UI with loading, empty, and error states
+- Accessibility-focused interactions
+- A cohesive espresso / warm-cream / amber / bronze visual design system
 
-![Dashboard Logo](M2.png)
-
-![Dashboard Logo](M3.png)
-
+---
 
 ## Features
 
-- **User Authentication**: Users can register and log in to access the platform.
-- **Course Listing**: Users can view a list of available courses.
-- **Course Enrollment**: Users can enroll in courses and view their enrolled courses in Profile section in Navbar.
-- **Responsive Design**: The application is responsive and user-friendly.
-- **Secure and Efficient**: Implements authentication, authorization, and secure database interactions.
+### Authentication
+- User registration & login
+- JWT authentication with protected routes
+- Role-based authorization (admin-only functionality)
+- Password visibility controls
 
-## Technologies Used
+### Course Marketplace
+- Rich course cards (title, description, category, level, instructor, duration, pricing, discounts)
+- Client-side search across title, description, instructor, and category
+- Category filtering and multiple sort options (recommended, newest, price, alphabetical)
+- Match/result counts and "clear filters"
+
+### Course Details
+- Dedicated course-detail page with a responsive purchase panel
+- Add to Cart / Buy Now / purchased-state detection
+
+### Cart
+- Add/remove/clear courses, with owned-course exclusion
+- Subtotal, discount, and final total calculation
+- Multi-course checkout
+- Sends course IDs (not client-calculated totals) to the backend
+
+### Profile / My Learning
+- Enrolled courses displayed as cards with a "Continue Learning" CTA
+- Loading, empty, and error states
+- Graceful handling of deleted/missing course references
+
+### Admin Course Management
+- Create, edit, and delete courses
+- JWT + admin-role protected APIs
+- Explicit delete confirmation workflow (shows exact course title, defaults focus to Cancel, requires an explicit destructive action)
+
+---
+
+## Payment System
+
+StealthMode integrates **Razorpay Standard Checkout** with a fully server-authoritative payment architecture — the frontend never determines the final payable amount.
+
+### Flow
+
+```
+Course selection (Buy Now / Cart)
+        │
+        ▼
+Frontend sends course ID(s)
+        │
+        ▼
+Backend validates user & fetches courses from MongoDB
+        │
+        ▼
+Backend calculates authoritative total from DB prices
+        │
+        ▼
+Razorpay Order created (server-side)
+        │
+        ▼
+Order/Payment persisted in MongoDB
+        │
+        ▼
+Razorpay Checkout opens on the frontend
+        │
+        ▼
+Payment completed → callback sent to backend
+        │
+        ▼
+Backend verifies HMAC-SHA256 signature (timing-safe)
+        │
+        ▼
+Payment/Order marked paid → Enrollment(s) created
+```
+
+The same server-authoritative approach applies to both single-course ("Buy Now") and multi-course (cart) checkout.
+
+### Payment Security
+- Server-side Razorpay order creation
+- Server-authoritative pricing (client sends course IDs, not amounts)
+- HMAC-SHA256 signature verification with timing-safe comparison
+- Idempotent enrollment on `(userId, courseId)`
+- Protected payment routes (require authentication; admin routes require admin role)
+- No Razorpay secrets or order-creation logic in frontend code
+
+### Webhook Hardening (Implemented, Deferred from Production)
+
+A complete Razorpay webhook reconciliation system has been built and tested locally, but is intentionally **not enabled in production** since the current deployment is serverless without a durable background queue/worker — and Razorpay's guidance recommends acknowledging webhooks quickly and processing them asynchronously via durable infrastructure. It remains a designed and validated reliability layer for when that infrastructure is in place.
+
+Capabilities include:
+- Raw-body HMAC-SHA256 verification of `X-Razorpay-Signature`
+- Event-level idempotency (`WebhookEvent` + unique `eventId`) and enrollment-level idempotency
+- Configurable replay-window protection (default 300s)
+- Amount/currency reconciliation against stored order data
+- Out-of-order event handling (`payment.captured`, `order.paid`, `payment.failed`) without downgrading an already-paid record
+
+---
+
+## Architecture
+
+### Backend
+
+Modular MVC / service-oriented architecture:
+
+```
+Backend
+├── Routes
+├── Controllers
+├── Services       (auth, courses, payments, orders, enrollment, webhooks)
+├── Models          (MongoDB)
+├── Middleware      (JWT validation, role authorization)
+└── Scripts
+```
 
 ### Frontend
-- **React.js**: A JavaScript library for building user interfaces.
-- **React Router**: For seamless navigation between different pages.
-- **Axios**: For making HTTP requests to the backend API.
-- **CSS**: For styling the application.
-  
-### Backend
-- **Node.js**: A JavaScript runtime built on Chrome's V8 JavaScript engine.
-- **Express.js**: A fast, unopinionated, minimalist web framework for Node.js.
-- **bcryptjs**: For hashing passwords.
-- **jsonwebtoken**: For generating and verifying JWT tokens.
-- **body-parser**: For parsing incoming request bodies.
-- **cors**: For enabling Cross-Origin Resource Sharing.
 
-### Database
-- **MongoDB**: A NoSQL database for storing user and course data.
-- **Mongoose**: An ODM (Object Data Modeling) library for MongoDB and Node.js.
+React application using React Router and the Context API for shared state:
 
-### DevOps & Deployment
-- **AWS EC2**: For hosting the backend server.
-- **Frontend and Backend**: Vercel
-- **Nodemon**: For automatically restarting the server during development.
+```
+React Application
+├── App / Routes
+├── Context
+│   ├── UserContext
+│   ├── CartContext
+│   └── ToastContext
+├── Components
+├── Pages
+├── Services        (Axios API client)
+└── CSS
+```
 
-## Available Scripts
+**Main routes:** `/` (landing), `/dashboard` (marketplace), `/enroll/:id` (course detail), `/cart`, `/profile` (My Learning), `/admin/courses`, plus login/registration.
 
-Runs the app in the development mode.\
-Open [https://sleath-frontend.vercel.app/](https://sleath-frontend.vercel.app/) to view it in the browser.
+**Reusable UI primitives:** `Skeleton`, `EmptyState`, `ErrorState`, `Toast`.
 
+---
 
-1. **Clone the repository:**
+## Tech Stack
 
-   ```bash
-   git clone https://github.com/moto23/SleathMode_Project.git
+| Layer | Technologies |
+|---|---|
+| Frontend | React.js, React Router v6, Context API, Axios, Create React App |
+| Backend | Node.js, Express.js, REST APIs, MVC + service-layer architecture |
+| Auth | JWT, RBAC |
+| Database | MongoDB |
+| Payments | Razorpay Standard Checkout, Razorpay Orders API, HMAC-SHA256 |
+| Communication | REST, Axios, EmailJS (contact form) |
+| Deployment | Vercel (frontend & backend) |
 
-In the project directory, you can run:
+---
 
-### `npm start`
+## Project Structure
 
-Runs the app in the development mode.\
-Open [http://localhost:3001](http://localhost:3001) to view it in your browser.
+```
+StealthMode/
+├── frontend/
+│   ├── src/
+│   │   ├── components/
+│   │   │   ├── home/        # Main, Home, Dashboard, CourseCard, Enroll, Cart, Profile
+│   │   │   ├── admin/        # AdminCourses
+│   │   │   └── ui/           # Skeleton, EmptyState, ErrorState
+│   │   ├── context/          # UserContext, CartContext, ToastContext
+│   │   ├── services/         # api.js, checkout.js, price.js
+│   │   ├── styles/           # tokens.css
+│   │   └── App.js
+│   └── package.json
+├── backend/
+│   ├── controllers/
+│   ├── middleware/
+│   ├── models/
+│   ├── routes/
+│   ├── services/
+│   ├── scripts/
+│   ├── server.js
+│   └── package.json
+└── README.md
+```
 
-### `npm install`
+---
 
-The page will reload if you make edits.\
-You will also see any lint errors in the console.
+## API Reference
 
-### `npm test`
+| Endpoint | Description |
+|---|---|
+| `POST /api/payments/create-order` | Create a Razorpay order for a single course |
+| `POST /api/payments/verify` | Verify payment signature for a single-course purchase |
+| `POST /api/payments/cart/create-order` | Create a Razorpay order for cart checkout |
+| `POST /api/payments/cart/verify` | Verify payment signature for cart checkout |
+| `GET /api/payments/owned` | Retrieve courses owned by the authenticated user |
+| `GET /api/payments/status/:id` | Check payment/order status |
+| `POST /api/payments/webhook` | *(implemented locally, deferred)* Razorpay server-to-server event handler |
 
-Launches the test runner in the interactive watch mode.\
-See the section about [running tests](https://facebook.github.io/create-react-app/docs/running-tests) for more information.
+All payment endpoints require authentication; unauthenticated requests are rejected. Admin endpoints additionally require an admin role.
 
-### `npm run build`
+---
 
-Builds the app for production to the `build` folder.\
-It correctly bundles React in production mode and optimizes the build for the best performance.
+## Security
 
-The build is minified and the filenames include the hashes.\
-Your app is ready to be deployed!
+- Server-side Razorpay order creation and signature verification — the backend never trusts a client-supplied payment amount
+- Secrets (`RAZORPAY_KEY_SECRET`, `JWT_SECRET`, `MONGODB_URI`, `RAZORPAY_WEBHOOK_SECRET`) are kept server-side only and are never committed
+- No Razorpay key secrets, order-creation calls, or `new Razorpay(...)` instantiation in frontend code
+- JWT-based authentication and role-based authorization on protected and admin routes
+- Idempotent enrollment logic to prevent duplicate course access
 
-See the section about [deployment](https://facebook.github.io/create-react-app/docs/deployment) for more information.
+### Environment Variables (backend)
 
-### `npm run eject`
+```env
+MONGODB_URI=...
+JWT_SECRET=...
+RAZORPAY_KEY_ID=...
+RAZORPAY_KEY_SECRET=...
 
-**Note: this is a one-way operation. Once you `eject`, you can’t go back!**
+# Webhook (implemented locally, not yet enabled in production)
+RAZORPAY_WEBHOOK_SECRET=...
+RAZORPAY_WEBHOOK_MAX_AGE_SECONDS=300
+```
 
-If you aren’t satisfied with the build tool and configuration choices, you can `eject` at any time. This command will remove the single build dependency from your project.
+> Never commit `.env`, `.env.local`, or `.env.production` files.
 
-Instead, it will copy all the configuration files and the transitive dependencies (webpack, Babel, ESLint, etc) right into your project so you have full control over them. All of the commands except `eject` will still work, but they will point to the copied scripts so you can tweak them. At this point you’re on your own.
+---
 
-## Learn More
+## Design System
 
-You can learn more in the [Create React App documentation](https://facebook.github.io/create-react-app/docs/getting-started).
+A centralized design-token system (`styles/tokens.css`) drives a cohesive **espresso, warm cream, amber, bronze, and selective glass** visual language across the landing page, dashboard, course details, cart, profile, and admin views. Glassmorphism is used selectively on major surfaces rather than applied uniformly, and content-heavy areas favor more opaque surfaces for readability.
 
-To learn React, check out the [React documentation](https://reactjs.org/).
+Accessibility considerations include accessible form labels, `aria-live` toast notifications, `role="alert"` for errors, visible focus states, keyboard-friendly interactions, and reduced-motion/reduced-transparency support.
+
+The landing page intentionally avoids unsupported marketing claims (student counts, ratings, testimonials, or achievements) — only real course data is displayed.
+
+---
+
+## Engineering Principles
+
+- **Server-authoritative pricing** — never trust frontend payment totals
+- **Server-side verification** — never grant paid access from browser data alone
+- **Separation of concerns** — payment logic isolated from presentation
+- **Idempotency** — repeated payment/enrollment events never create duplicate access
+- **RBAC** — administrative operations require explicit authorization
+- **Progressive enhancement** — frontend improvements ship without altering stable payment contracts
+- **Production safety** — payment-critical files (`services/checkout.js`, `services/price.js`, `context/CartContext.js`, `context/UserContext.js`) are isolated from visual/UI redesign work
+
+---
+
+## Future Improvements
+
+- Durable webhook queue/worker and production webhook enablement
+- Server-side course search & pagination as the catalog grows
+- Persistent wishlist and course progress tracking
+- Curriculum modules and instructor profiles
+- Reviews and ratings backed by real user data
+- Advanced analytics and automated monitoring
+
+---
+
+## Author
+
+**Prasad Nathe**
+Software Engineer
+
+StealthMode — Full-Stack E-Learning Marketplace
